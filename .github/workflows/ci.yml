@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    name: Lint, typecheck, and test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@1.100.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Install Tauri Linux libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@1.100.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - name: Build the NSIS installer and portable exe
+        run: npm run tauri build
+      - name: Collect Windows artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist-artifacts | Out-Null
+          Copy-Item -Path src-tauri/target/release/bundle/nsis/*.exe -Destination dist-artifacts/
+          Get-ChildItem src-tauri/target/release -Filter *.exe | Copy-Item -Destination dist-artifacts/
+          Get-ChildItem dist-artifacts | Format-Table Name, Length
+          if (-not (Get-ChildItem dist-artifacts -Filter *.exe)) { throw "No Windows executable was produced." }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: glint-windows
+          path: dist-artifacts/*.exe
+          if-no-files-found: error
