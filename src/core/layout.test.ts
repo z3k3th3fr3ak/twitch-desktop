@@ -9,6 +9,7 @@ import {
   openChannel,
   placeChannel,
   removeNamedLayout,
+  safeWorkspace,
   saveNamedLayout,
   setWorkspaceLayout,
   type TileChannel,
@@ -87,6 +88,17 @@ describe("multi-view workspace", () => {
     expect(duo.tiles).toHaveLength(2);
     expect(duo.tiles.map((tile) => tile?.login)).toEqual(["harbor", "kiln"]);
     expect(duo.focus).toBe(0);
+  });
+});
+
+describe("safe mode", () => {
+  it("keeps a single channel and drops the rest of a restored grid", () => {
+    let grid = emptyWorkspace("quad");
+    for (const channel of [harbor, kiln, north]) grid = openChannel(grid, channel);
+    const safe = safeWorkspace(grid);
+    expect(safe.layout).toBe("solo");
+    expect(safe.tiles).toEqual([harbor]);
+    expect(safe.focus).toBe(0);
   });
 });
 

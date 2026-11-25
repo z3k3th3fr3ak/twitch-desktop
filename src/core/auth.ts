@@ -42,6 +42,16 @@ export function validateClientId(value: string): string | null {
   return null;
 }
 
+const MIN_POLL_MS = 5_000;
+const MAX_POLL_MS = 30_000;
+
+/** One sleep between device-code polls. Slow-down always waits longer than the last poll. */
+export function nextPollDelay(currentMs: number, outcome: "pending" | "slow_down"): number {
+  const current = Number.isFinite(currentMs) ? currentMs : MIN_POLL_MS;
+  if (outcome === "slow_down") return Math.min(MAX_POLL_MS, Math.max(MIN_POLL_MS, current + 5_000));
+  return Math.min(MAX_POLL_MS, Math.max(MIN_POLL_MS, current));
+}
+
 export function formatUserCode(code: string): string {
   const clean = code.replace(/\s+/g, "");
   if (clean.length !== 8) return code.trim();

@@ -11,6 +11,8 @@ export function Onboarding({
   onBeginLogin,
   onCancelLogin,
   onOpenVerify,
+  safeMode,
+  logPath,
 }: {
   clientId: string;
   device: DeviceStart | null;
@@ -20,6 +22,8 @@ export function Onboarding({
   onBeginLogin: () => void;
   onCancelLogin: () => void;
   onOpenVerify: (url: string) => void;
+  safeMode: boolean;
+  logPath: string;
 }) {
   const [draft, setDraft] = useState(clientId);
   const problem = validateClientId(draft);
@@ -32,6 +36,11 @@ export function Onboarding({
         Client ID here, and approve it with a device code. Tokens stay in Windows Credential
         Manager.
       </p>
+      {safeMode ? (
+        <p className="banner">
+          Safe mode is on. The overlay stays closed, and video will not play until you click a tile.
+        </p>
+      ) : null}
       {error ? <p className="banner">{error}</p> : null}
       <ol className="steps">
         <li>
@@ -117,6 +126,11 @@ export function Onboarding({
           {deviceStatus && !device ? <p className="hint">{deviceStatus}</p> : null}
         </li>
       </ol>
+      {logPath ? (
+        <p className="hint">
+          Startup log: <code>{logPath}</code>
+        </p>
+      ) : null}
     </main>
   );
 }

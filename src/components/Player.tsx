@@ -12,6 +12,9 @@ export type PlayerHandle = {
 type PlayerProps = {
   channel: string;
   listen: boolean;
+  /** When false, no Twitch script or iframe is created. */
+  enabled?: boolean;
+  autoplay?: boolean;
   demo?: boolean;
 };
 
@@ -42,7 +45,7 @@ function call(player: TwitchPlayerInstance | null, action: (player: TwitchPlayer
 }
 
 export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
-  { channel, listen, demo },
+  { channel, listen, enabled = true, autoplay = true, demo },
   ref,
 ) {
   const hostId = `twitch-${useId().replace(/:/g, "")}`;
@@ -83,9 +86,10 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   }));
 
   useEffect(() => {
-    if (demo) return;
+    if (demo || !enabled) return;
     let cancelled = false;
     const parent = window.location.hostname || "localhost";
+    const shouldPlay = autoplay;
     setFailed(false);
     void loadEmbed()
       .then(() => {
@@ -98,13 +102,13 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
           height: "100%",
           channel,
           parent: [parent],
-          autoplay: true,
+          autoplay: shouldPlay,
           muted: !listenRef.current,
         });
         playerRef.current = player;
-        if (listenRef.current) {
+        if (shouldPlay && listenRef.current) {
           player.addEventListener(window.Twitch.Player.READY, () => {
-            if (listenRef.current) {
+            if (!cancelled && listenRef.current) {
               player.setMuted(false);
               player.play();
             }
@@ -116,10 +120,20 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
       });
     return () => {
       cancelled = true;
+      const player = playerRef.current;
       playerRef.current = null;
-      document.getElementById(hostId)?.replaceChildren();
+      if (player) {
+        try {
+          player.setMuted(true);
+          player.pause();
+        } catch {
+          // The embed may already be gone.
+        }
+      }
+      const node = document.getElementById(hostId);
+      if (node) node.replaceChildren();
     };
-  }, [channel, demo, hostId]);
+  }, [autoplay, channel, demo, enabled, hostId]);
 
   useEffect(() => {
     if (listen) {
@@ -140,6 +154,9 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
         <em>Official player sits here</em>
       </div>
     );
+  }
+  if (!enabled) {
+    return null;
   }
   if (failed) {
     const parent = window.location.hostname || "localhost";

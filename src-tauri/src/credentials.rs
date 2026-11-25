@@ -1,7 +1,11 @@
 use keyring::Entry;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 const SERVICE: &str = "app.glint.desktop";
 const USER: &str = "twitch-oauth";
+
+/// First-run machines have no token. Remember that so a retry cannot hammer Credential Manager.
+static KNOWN_ABSENT: AtomicBool = AtomicBool::new(false);
 
 fn entry() -> Result<Entry, String> {
     Entry::new(SERVICE, USER).map_err(|_| {
@@ -15,6 +19,9 @@ fn missing(error: &keyring::Error) -> bool {
         || text.contains("not found")
         || text.contains("no matching")
         || text.contains("cannot find")
+        || text.contains("element not found")
+        || text.contains("1168")
+        || text.contains("0x80070490")
 }
 
 pub fn save(secret: &str) -> Result<(), String> {
@@ -26,13 +33,24 @@ pub fn save(secret: &str) -> Result<(), String> {
     }
     entry()?
         .set_password(secret)
-        .map_err(|_| "Glint couldn't save the Twitch token in the credential store.".to_string())
+        .map_err(|_| "Glint couldn't save the Twitch token in the credential store.".to_string())?;
+    KNOWN_ABSENT.store(false, Ordering::Relaxed);
+    Ok(())
 }
 
 pub fn load() -> Result<Option<String>, String> {
+    if KNOWN_ABSENT.load(Ordering::Relaxed) {
+        return Ok(None);
+    }
     match entry()?.get_password() {
-        Ok(secret) => Ok(Some(secret)),
-        Err(error) if missing(&error) => Ok(None),
+        Ok(secret) => {
+            KNOWN_ABSENT.store(false, Ordering::Relaxed);
+            Ok(Some(secret))
+        }
+        Err(error) if missing(&error) => {
+            KNOWN_ABSENT.store(true, Ordering::Relaxed);
+            Ok(None)
+        }
         Err(_) => Err(
             "Glint couldn't read the Twitch token from the credential store.".to_string(),
         ),
@@ -40,6 +58,7 @@ pub fn load() -> Result<Option<String>, String> {
 }
 
 pub fn clear() -> Result<(), String> {
+    KNOWN_ABSENT.store(true, Ordering::Relaxed);
     match entry()?.delete_credential() {
         Ok(()) => Ok(()),
         Err(error) if missing(&error) => Ok(()),

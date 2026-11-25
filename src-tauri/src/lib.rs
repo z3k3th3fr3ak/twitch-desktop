@@ -1,5 +1,6 @@
 mod chat;
 mod credentials;
+mod diag;
 mod eventsub;
 mod http_policy;
 mod protocol;
@@ -142,8 +143,33 @@ fn tray_set_live(app: AppHandle, channels: Vec<tray::TrayChannel>) -> Result<(),
     tray::set_live(&app, &channels).map_err(|_| "The tray menu could not be updated.".to_string())
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LaunchInfo {
+    safe_mode: bool,
+    log_path: String,
+    minimized: bool,
+}
+
+#[tauri::command]
+fn launch_info() -> LaunchInfo {
+    LaunchInfo {
+        safe_mode: diag::safe_mode(),
+        log_path: diag::path()
+            .map(|path| path.display().to_string())
+            .unwrap_or_default(),
+        minimized: diag::minimized(),
+    }
+}
+
+#[tauri::command]
+fn append_log(message: String) {
+    diag::append(&message);
+}
+
 #[tauri::command]
 fn app_quit(app: AppHandle) {
+    diag::append("quit");
     app.exit(0);
 }
 
@@ -152,7 +178,7 @@ pub fn run() {
     let http = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(20))
-        .user_agent("Glint/0.1.0 (Twitch desktop companion)")
+        .user_agent("Glint/0.1.1 (Twitch desktop companion)")
         .build()
         .expect("HTTP client");
 
@@ -175,7 +201,20 @@ pub fn run() {
             events: Mutex::new(eventsub::Control::new()),
         })
         .setup(|app| {
+            let log_path = diag::init();
+            let safe = diag::safe_mode();
+            diag::append(&format!(
+                "process start safe_mode={safe} minimized={} log={}",
+                diag::minimized(),
+                log_path.display()
+            ));
             tray::install(app.handle())?;
+            diag::append("tray installed once");
+            diag::append("overlay not created");
+            diag::append("main window is opaque, borderless, and has no shadow");
+            if safe {
+                diag::append("safe mode: overlay off, single tile, no autoplay");
+            }
             if let Some(window) = app.get_webview_window("main") {
                 let watched = window.clone();
                 window.on_window_event(move |event| {
@@ -185,8 +224,11 @@ pub fn run() {
                     }
                 });
             }
-            if !std::env::args().any(|arg| arg == "--minimized") {
+            if !diag::minimized() {
                 tray::reveal(app.handle());
+                diag::append("main window shown");
+            } else {
+                diag::append("main window left hidden for tray startup");
             }
             Ok(())
         })
@@ -203,6 +245,8 @@ pub fn run() {
             eventsub_connect,
             eventsub_disconnect,
             tray_set_live,
+            launch_info,
+            append_log,
             app_quit
         ])
         .run(tauri::generate_context!())

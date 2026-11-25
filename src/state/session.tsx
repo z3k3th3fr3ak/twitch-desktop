@@ -13,6 +13,7 @@ import {
 import {
   type DeviceStart,
   missingScopes,
+  nextPollDelay,
   parseStoredAuth,
   REQUIRED_SCOPES,
   type StoredAuth,
@@ -35,6 +36,7 @@ import {
   placeChannel as placeWorkspaceChannel,
   removeNamedLayout,
   type SavedLayout,
+  safeWorkspace,
   saveNamedLayout,
   setWorkspaceLayout,
   type TileChannel,
@@ -58,8 +60,10 @@ import {
   notify,
   onApp,
   quitApp,
+  readLaunchInfo,
   saveSecret,
   setTray,
+  writeLog,
 } from "../platform/backend";
 import { type Favorite, loadPersisted, savePersisted } from "../platform/storage";
 import {
@@ -75,7 +79,7 @@ import {
   searchChannels,
   startDevice,
 } from "../platform/twitch";
-import { openPopout, showOverlay, toggleOverlay } from "../platform/windows";
+import { openPopout, setOverlayAllowed, showOverlay, toggleOverlay } from "../platform/windows";
 import { DEFAULT_SETTINGS, type Settings } from "./settings";
 
 type Phase = "boot" | "setup" | "app";
@@ -85,6 +89,8 @@ type SessionValue = {
   phase: Phase;
   view: View;
   demo: boolean;
+  safeMode: boolean;
+  logPath: string;
   settings: Settings;
   auth: StoredAuth | null;
   device: DeviceStart | null;
@@ -159,6 +165,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<Record<string, VisibleChatItem[]>>({});
   const [emotes, setEmotes] = useState<Map<string, Emote>>(new Map());
   const [chatStatus, setChatStatus] = useState("offline");
+  const [safeMode, setSafeMode] = useState(false);
+  const [logPath, setLogPath] = useState("");
 
   const settingsRef = useRef(settings);
   const authRef = useRef(auth);
@@ -170,6 +178,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const emoteCache = useRef(new Map<string, Map<string, Emote>>());
   const lastSent = useRef(0);
   const pollStop = useRef<(() => void) | null>(null);
+  const polling = useRef(false);
   const subs = useRef({ sessionId: "", key: "", ids: [] as string[] });
   settingsRef.current = settings;
   authRef.current = auth;
@@ -188,37 +197,44 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const updateRef = useRef(updateSettings);
   updateRef.current = updateSettings;
 
+  const refreshing = useRef(false);
+
   async function refreshStreams() {
     const current = authRef.current;
     const clientId = settingsRef.current.clientId;
-    if (!current || !clientId || launch.demo) return;
-    const live = await fetchFollowedLive(clientId, current);
-    const faces = await fetchAvatars(
-      clientId,
-      current,
-      live.map((stream) => stream.userId),
-    );
-    setAvatars((prev) => ({ ...prev, ...Object.fromEntries(faces) }));
-    setStreams(live);
-    const favoriteIds = new Set(favoritesRef.current.map((favorite) => favorite.userId));
-    const decision = diffLive(seenRef.current, live, settingsRef.current.notify, favoriteIds);
-    seenRef.current = decision.next;
-    setSeen(decision.next);
-    for (const stream of decision.notify) {
-      await notify(
-        `${stream.displayName} is live`,
-        stream.title || stream.gameName || "Just went live on Twitch",
+    if (!current || !clientId || launch.demo || refreshing.current) return;
+    refreshing.current = true;
+    try {
+      const live = await fetchFollowedLive(clientId, current);
+      const faces = await fetchAvatars(
+        clientId,
+        current,
+        live.map((stream) => stream.userId),
       );
+      setAvatars((prev) => ({ ...prev, ...Object.fromEntries(faces) }));
+      setStreams(live);
+      const favoriteIds = new Set(favoritesRef.current.map((favorite) => favorite.userId));
+      const decision = diffLive(seenRef.current, live, settingsRef.current.notify, favoriteIds);
+      seenRef.current = decision.next;
+      setSeen(decision.next);
+      for (const stream of decision.notify) {
+        await notify(
+          `${stream.displayName} is live`,
+          stream.title || stream.gameName || "Just went live on Twitch",
+        );
+      }
+      const favoriteLive = live.filter((stream) => favoriteIds.has(stream.userId));
+      const traySource = favoriteLive.length > 0 ? favoriteLive : live;
+      await setTray(
+        traySource.slice(0, 8).map((stream) => ({
+          login: stream.login,
+          displayName: stream.displayName,
+          viewers: stream.viewers,
+        })),
+      );
+    } finally {
+      refreshing.current = false;
     }
-    const favoriteLive = live.filter((stream) => favoriteIds.has(stream.userId));
-    const traySource = favoriteLive.length > 0 ? favoriteLive : live;
-    await setTray(
-      traySource.slice(0, 8).map((stream) => ({
-        login: stream.login,
-        displayName: stream.displayName,
-        viewers: stream.viewers,
-      })),
-    );
   }
 
   async function subscribeFavorites(sessionId: string) {
@@ -300,19 +316,36 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         settingsRef.current = persisted.settings;
         setFavorites(persisted.favorites);
         favoritesRef.current = persisted.favorites;
-        setWorkspace(persisted.workspace ?? emptyWorkspace("duo"));
+        const info = await readLaunchInfo();
+        if (cancelled) return;
+        setSafeMode(info.safeMode);
+        setLogPath(info.logPath);
+        const restored = persisted.workspace ?? emptyWorkspace(info.safeMode ? "solo" : "duo");
+        setWorkspace(info.safeMode ? safeWorkspace(restored) : restored);
         setSavedLayouts(persisted.savedLayouts);
         setSeen(persisted.seen);
         seenRef.current = persisted.seen;
+        await writeLog(
+          info.safeMode
+            ? "frontend boot in safe mode; overlay stays closed"
+            : "frontend boot; overlay not created",
+        );
         if (isTauri() && persisted.settings.clientId) {
+          await writeLog("reading credential store once");
           const stored = parseStoredAuth((await loadSecret()) ?? "");
+          await writeLog(stored ? "credential found" : "no credential stored");
           if (stored) {
             authRef.current = stored;
             setAuth(stored);
             setPhase("app");
-          } else setPhase("setup");
-          if (persisted.settings.autostart) await enable().catch(() => undefined);
-        } else setPhase("setup");
+          } else {
+            setPhase("setup");
+            await writeLog("showing setup");
+          }
+        } else {
+          setPhase("setup");
+          await writeLog("showing setup; credential store not opened");
+        }
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "Glint couldn't open its settings.");
         setPhase("setup");
@@ -386,7 +419,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       });
     };
     const start = window.setTimeout(tick, 400);
-    const id = window.setInterval(tick, 45_000);
+    const id = window.setInterval(tick, 60_000);
     return () => {
       stopped = true;
       window.clearTimeout(start);
@@ -521,7 +554,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [searchQuery, phase, launch.demo]);
 
   useEffect(() => {
-    if (!isTauri() || launch.mode !== "main" || launch.demo) return;
+    setOverlayAllowed(phase === "app" && !safeMode && !launch.demo);
+  }, [phase, safeMode, launch.demo]);
+
+  useEffect(() => {
+    return () => {
+      pollStop.current?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri() || launch.mode !== "main" || launch.demo || phase !== "app" || safeMode) return;
     const shortcut = "CommandOrControl+Alt+KeyG";
     let cancelled = false;
     void (async () => {
@@ -545,7 +588,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       void unregister(shortcut).catch(() => undefined);
     };
-  }, [settings.hotkey, launch.mode, launch.demo]);
+  }, [settings.hotkey, launch.mode, launch.demo, phase, safeMode]);
 
   async function syncJoins(current: Workspace) {
     if (!isTauri() || launch.demo) return;
@@ -567,7 +610,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
 
   async function beginLogin() {
-    if (!isTauri()) return;
+    if (!isTauri() || polling.current) return;
     const clientId = settingsRef.current.clientId;
     const problem = validateClientId(clientId);
     if (problem) {
@@ -575,22 +618,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return;
     }
     setError(null);
+    polling.current = true;
+    const signal = { stop: false };
+    pollStop.current = () => {
+      signal.stop = true;
+    };
     try {
       const start = await startDevice(clientId);
+      if (signal.stop) return;
       setDevice(start);
       setDeviceStatus("Approve Glint in the browser. This window checks every few seconds.");
-      let interval = start.intervalMs;
-      const signal = { stop: false };
-      pollStop.current = () => {
-        signal.stop = true;
-      };
+      await writeLog("device-code poll started");
+      let interval = nextPollDelay(start.intervalMs, "pending");
       while (!signal.stop && Date.now() < start.expiresAt) {
         await sleep(interval);
         if (signal.stop) return;
         const result = await pollDevice(clientId, start.deviceCode);
-        if (result.kind === "pending") continue;
+        if (result.kind === "pending") {
+          interval = nextPollDelay(interval, "pending");
+          continue;
+        }
         if (result.kind === "slow_down") {
-          interval += 5000;
+          interval = nextPollDelay(interval, "slow_down");
           setDeviceStatus("Twitch asked Glint to slow down. Still waiting.");
           continue;
         }
@@ -627,6 +676,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } catch (caught) {
       setDevice(null);
       setError(caught instanceof Error ? caught.message : "Twitch sign-in failed.");
+    } finally {
+      polling.current = false;
+      pollStop.current = null;
+      await writeLog("device-code poll stopped");
     }
   }
 
@@ -666,6 +719,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     phase,
     view,
     demo: launch.demo,
+    safeMode,
+    logPath,
     settings,
     auth,
     device,

@@ -64,6 +64,12 @@ export function asTileChannel(value: unknown): TileChannel | null {
   return { login, userId, displayName: (displayName || login).slice(0, 40) };
 }
 
+/** Safe mode keeps one channel and does not restore a multi-stream grid. */
+export function safeWorkspace(workspace: Workspace): Workspace {
+  const first = workspace.tiles.find((tile) => tile != null) ?? null;
+  return normalizeWorkspace({ layout: "solo", tiles: [first], focus: 0 });
+}
+
 export function emptyWorkspace(layout: GridLayout = "duo"): Workspace {
   return {
     layout,

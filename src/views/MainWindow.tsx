@@ -29,6 +29,8 @@ export function MainWindow() {
           onBeginLogin={() => void session.beginLogin()}
           onCancelLogin={session.cancelLogin}
           onOpenVerify={(url) => void session.openExternal(url)}
+          safeMode={session.safeMode}
+          logPath={session.logPath}
         />
       ) : null}
       {session.phase === "app" ? (
@@ -41,7 +43,11 @@ export function MainWindow() {
             >
               <span>Watch</span>
             </button>
-            <button type="button" onClick={() => void session.openOverlay()}>
+            <button
+              type="button"
+              disabled={session.safeMode}
+              onClick={() => void session.openOverlay()}
+            >
               <span>Overlay</span>
             </button>
             <button
@@ -84,6 +90,7 @@ export function MainWindow() {
                 <Mosaic
                   workspace={session.workspace}
                   demo={session.demo}
+                  holdPlayback={session.safeMode}
                   savedLayouts={session.savedLayouts}
                   onFocus={session.focusTile}
                   onMove={session.moveTile}

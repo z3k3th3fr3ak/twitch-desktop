@@ -105,6 +105,14 @@ On a current Windows 10 or 11 machine:
 
 Closing the window leaves Glint in the tray. **Quit Glint** is in the tray menu and in Settings.
 
+The main window is borderless but opaque, with the Windows shadow turned off. A transparent shadow on that kind of window makes the whole desktop feel laggy on some GPUs, and it used to start the moment the setup screen appeared. The chat overlay is not created until you are signed in and open it. Its hotkey is off until you turn it on in Settings.
+
+### If Windows feels slow
+
+Quit Glint from the tray, then start it with `glint.exe --safe-mode`, or hold Shift while you open it. Safe mode keeps the overlay closed, shows one tile, and does not play video until you click it.
+
+The startup log is written to `%APPDATA%\app.glint.desktop\glint.log`. The setup screen shows that path. Send that file with the next report.
+
 `glint.exe` from the same artifact is a portable build. It still needs WebView2, which updated Windows 10 and 11 already include. The NSIS installer is the one to hand to someone else.
 
 The Client ID stays in Glint's settings file under your user profile. Tokens stay in Credential Manager under the service name `app.glint.desktop`.

@@ -7,6 +7,7 @@ export type TwitchPlayerInstance = {
   setMuted: (muted: boolean) => void;
   setVolume: (volume: number) => void;
   play: () => void;
+  pause: () => void;
   setQuality: (quality: string) => void;
   getQualities: () => string[];
   getQuality: () => string;

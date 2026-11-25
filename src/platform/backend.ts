@@ -74,6 +74,22 @@ export async function setTray(channels: TrayEntry[]): Promise<void> {
   await invoke("tray_set_live", { channels });
 }
 
+export type LaunchInfo = {
+  safeMode: boolean;
+  logPath: string;
+  minimized: boolean;
+};
+
+export async function readLaunchInfo(): Promise<LaunchInfo> {
+  if (!isTauri()) return { safeMode: false, logPath: "", minimized: false };
+  return invoke<LaunchInfo>("launch_info");
+}
+
+export async function writeLog(message: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("append_log", { message });
+}
+
 export async function quitApp(): Promise<void> {
   await invoke("app_quit");
 }

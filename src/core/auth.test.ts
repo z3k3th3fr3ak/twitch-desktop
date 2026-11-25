@@ -8,6 +8,7 @@ import {
   helixAuthorization,
   interpretDevicePoll,
   missingScopes,
+  nextPollDelay,
   parseDeviceStart,
   parseStoredAuth,
   parseTokenSet,
@@ -175,6 +176,15 @@ describe("refresh and validation", () => {
   it("formats the two different authorization headers Twitch expects", () => {
     expect(helixAuthorization("abc")).toBe("Bearer abc");
     expect(validateAuthorization("abc")).toBe("OAuth abc");
+  });
+});
+
+describe("device poll pacing", () => {
+  it("never polls faster than five seconds and slows down further when asked", () => {
+    expect(nextPollDelay(0, "pending")).toBe(5_000);
+    expect(nextPollDelay(5_000, "pending")).toBe(5_000);
+    expect(nextPollDelay(5_000, "slow_down")).toBe(10_000);
+    expect(nextPollDelay(28_000, "slow_down")).toBe(30_000);
   });
 });
 

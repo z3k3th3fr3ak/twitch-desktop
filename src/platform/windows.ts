@@ -2,6 +2,13 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauri } from "./backend";
 
+let overlayAllowed = false;
+
+/** The transparent overlay is created only after sign-in, and never in safe mode. */
+export function setOverlayAllowed(allowed: boolean) {
+  overlayAllowed = allowed;
+}
+
 export async function openPopout(channel: string, mini: boolean): Promise<void> {
   if (!isTauri()) return;
   const label = `popout-${channel}`.replace(/[^a-zA-Z0-9\-/:_]/g, "").slice(0, 48);
@@ -28,7 +35,7 @@ export async function openPopout(channel: string, mini: boolean): Promise<void> 
 }
 
 export async function showOverlay(): Promise<void> {
-  if (!isTauri()) return;
+  if (!isTauri() || !overlayAllowed) return;
   const existing = await WebviewWindow.getByLabel("overlay");
   if (existing) {
     await existing.show();
@@ -39,7 +46,7 @@ export async function showOverlay(): Promise<void> {
 }
 
 export async function toggleOverlay(): Promise<void> {
-  if (!isTauri()) return;
+  if (!isTauri() || !overlayAllowed) return;
   const existing = await WebviewWindow.getByLabel("overlay");
   if (existing) {
     if (await existing.isVisible()) await existing.hide();

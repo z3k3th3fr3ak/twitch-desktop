@@ -18,6 +18,7 @@ const LAYOUTS: GridLayout[] = ["solo", "duo", "trio", "quad", "six"];
 export function Mosaic({
   workspace,
   demo = false,
+  holdPlayback = false,
   savedLayouts,
   onFocus,
   onMove,
@@ -31,6 +32,8 @@ export function Mosaic({
 }: {
   workspace: Workspace;
   demo?: boolean;
+  /** Safe mode: do not start the embed until the focused tile is clicked. */
+  holdPlayback?: boolean;
   savedLayouts: SavedLayout[];
   onFocus: (index: number) => void;
   onMove: (from: number, to: number) => void;
@@ -52,6 +55,13 @@ export function Mosaic({
   const [latency, setLatency] = useState<number | null>(null);
   const focused = focusedChannel(workspace);
   const listening = listeningIndex(workspace);
+  const [armedLogin, setArmedLogin] = useState<string | null>(
+    holdPlayback ? null : (focused?.login ?? null),
+  );
+
+  useEffect(() => {
+    if (!holdPlayback) setArmedLogin(focused?.login ?? null);
+  }, [focused?.login, holdPlayback]);
 
   useEffect(() => {
     const node = frame.current;
@@ -82,6 +92,8 @@ export function Mosaic({
   }, [demo, listening, focused?.login]);
 
   function activate(index: number) {
+    const tile = workspace.tiles[index];
+    if (tile) setArmedLogin(tile.login);
     handles.current.get(index)?.listen();
     for (const [key, handle] of handles.current) {
       if (key !== index) handle?.mute();
@@ -270,7 +282,7 @@ export function Mosaic({
                   </button>
                 ) : null}
               </header>
-              {tile ? (
+              {tile && (demo || (focusedTile && armedLogin === tile.login)) ? (
                 <>
                   <Player
                     ref={(handle) => {
@@ -278,6 +290,8 @@ export function Mosaic({
                     }}
                     channel={tile.login}
                     listen={focusedTile}
+                    enabled
+                    autoplay={!holdPlayback}
                     demo={demo}
                   />
                   {!focusedTile ? (
@@ -286,6 +300,10 @@ export function Mosaic({
                     </button>
                   ) : null}
                 </>
+              ) : tile ? (
+                <button type="button" className="tile-poster" onClick={() => activate(index)}>
+                  {focusedTile ? "Click to play" : "Click to listen"}
+                </button>
               ) : (
                 <button type="button" className="tile-empty" onClick={() => onFocus(index)}>
                   Drop a channel here, or select this slot and click one in the list.

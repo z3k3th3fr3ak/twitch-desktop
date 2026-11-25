@@ -24,7 +24,7 @@ export const DEFAULT_SETTINGS: Settings = {
   overlayOpacity: 0.78,
   clickThrough: false,
   autostart: false,
-  hotkey: true,
+  hotkey: false,
   chatFontSize: 15,
 };
 
@@ -43,7 +43,7 @@ export function parseSettings(value: unknown): Settings {
     overlayOpacity: Math.min(1, Math.max(0.35, opacity)),
     clickThrough: record.clickThrough === true,
     autostart: record.autostart === true,
-    hotkey: record.hotkey !== false,
+    hotkey: record.hotkey === true,
     chatFontSize: Math.min(22, Math.max(12, font)),
   };
 }
