@@ -1,8 +1,10 @@
 import { ChannelList } from "../components/ChannelList";
 import { Chat } from "../components/Chat";
 import { Mosaic } from "../components/Mosaic";
+import { PlayerLayer } from "../components/PlayerLayer";
 import { TitleBar } from "../components/TitleBar";
 import { focusedChannel } from "../core/layout";
+import { planPlayback } from "../core/playback";
 import { useSession } from "../state/session";
 import { Onboarding } from "./Onboarding";
 import { SettingsView } from "./SettingsView";
@@ -10,6 +12,20 @@ import { SettingsView } from "./SettingsView";
 export function MainWindow() {
   const session = useSession();
   const focused = focusedChannel(session.workspace);
+  const plan =
+    session.phase === "app"
+      ? planPlayback({
+          grid: session.workspace.tiles.flatMap((tile) => (tile ? [tile.login] : [])),
+          focused: focused?.login ?? null,
+          mini: session.miniLogin,
+          view: session.view,
+          audioFollow: session.settings.audioFollow,
+          audioSurface: session.audioSurface,
+          armed: session.liveLogins,
+          holdPlayback: true,
+        })
+      : [];
+  const audibleLogin = plan.find((player) => player.audible)?.login ?? null;
   const subtitle = focused
     ? `Listening to ${focused.displayName}`
     : session.phase === "app"
@@ -90,7 +106,8 @@ export function MainWindow() {
                 <Mosaic
                   workspace={session.workspace}
                   demo={session.demo}
-                  holdPlayback={session.safeMode}
+                  liveLogins={session.liveLogins}
+                  audibleLogin={audibleLogin}
                   savedLayouts={session.savedLayouts}
                   onFocus={session.focusTile}
                   onMove={session.moveTile}
@@ -100,7 +117,8 @@ export function MainWindow() {
                   onSave={session.saveLayout}
                   onRestore={session.restoreLayout}
                   onDelete={session.deleteLayout}
-                  onPopout={(channel, mini) => void session.popout(channel, mini)}
+                  onPopout={(channel) => void session.popout(channel)}
+                  onDockMini={session.dockMini}
                 />
               </div>
               <Chat
@@ -116,6 +134,23 @@ export function MainWindow() {
               />
             </>
           )}
+          <PlayerLayer
+            plan={plan}
+            demo={session.demo}
+            names={session.channelNames}
+            watchLayout={session.view === "watch"}
+            audioFollow={session.settings.audioFollow}
+            pinned={session.settings.miniAlwaysOnTop}
+            onTogglePin={() =>
+              session.updateSettings({ miniAlwaysOnTop: !session.settings.miniAlwaysOnTop })
+            }
+            onCloseMini={session.closeMini}
+            onListenMini={() => session.focusAudio("mini")}
+            onActivate={(login) => {
+              const index = session.workspace.tiles.findIndex((tile) => tile?.login === login);
+              if (index >= 0) session.focusTile(index);
+            }}
+          />
         </div>
       ) : null}
       {session.phase === "setup" && !session.demo ? (

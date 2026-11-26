@@ -11,14 +11,15 @@ import {
   type Workspace,
 } from "../core/layout";
 import { qualityLabel } from "../core/live";
-import { Player, type PlayerHandle } from "./Player";
+import { playerHandle } from "./Player";
 
 const LAYOUTS: GridLayout[] = ["solo", "duo", "trio", "quad", "six"];
 
 export function Mosaic({
   workspace,
   demo = false,
-  holdPlayback = false,
+  liveLogins,
+  audibleLogin,
   savedLayouts,
   onFocus,
   onMove,
@@ -29,11 +30,12 @@ export function Mosaic({
   onRestore,
   onDelete,
   onPopout,
+  onDockMini,
 }: {
   workspace: Workspace;
   demo?: boolean;
-  /** Safe mode: do not start the embed until the focused tile is clicked. */
-  holdPlayback?: boolean;
+  liveLogins: readonly string[];
+  audibleLogin: string | null;
   savedLayouts: SavedLayout[];
   onFocus: (index: number) => void;
   onMove: (from: number, to: number) => void;
@@ -43,10 +45,10 @@ export function Mosaic({
   onSave: (name: string) => void;
   onRestore: (id: string) => void;
   onDelete: (id: string) => void;
-  onPopout: (channel: string, mini: boolean) => void;
+  onPopout: (channel: string) => void;
+  onDockMini: () => void;
 }) {
   const frame = useRef<HTMLDivElement>(null);
-  const handles = useRef(new Map<number, PlayerHandle | null>());
   const [cramped, setCramped] = useState(false);
   const [layoutsOpen, setLayoutsOpen] = useState(false);
   const [layoutName, setLayoutName] = useState("");
@@ -55,13 +57,10 @@ export function Mosaic({
   const [latency, setLatency] = useState<number | null>(null);
   const focused = focusedChannel(workspace);
   const listening = listeningIndex(workspace);
-  const [armedLogin, setArmedLogin] = useState<string | null>(
-    holdPlayback ? null : (focused?.login ?? null),
-  );
-
-  useEffect(() => {
-    if (!holdPlayback) setArmedLogin(focused?.login ?? null);
-  }, [focused?.login, holdPlayback]);
+  const audible =
+    workspace.tiles.find((tile) => tile?.login === audibleLogin)?.displayName ??
+    focused?.displayName ??
+    null;
 
   useEffect(() => {
     const node = frame.current;
@@ -85,19 +84,13 @@ export function Mosaic({
       setLatency(null);
       return;
     }
-    const read = () => setLatency(handles.current.get(listening)?.latency() ?? null);
+    const read = () => setLatency(playerHandle(channel)?.latency() ?? null);
     read();
     const id = window.setInterval(read, 5000);
     return () => window.clearInterval(id);
   }, [demo, listening, focused?.login]);
 
   function activate(index: number) {
-    const tile = workspace.tiles[index];
-    if (tile) setArmedLogin(tile.login);
-    handles.current.get(index)?.listen();
-    for (const [key, handle] of handles.current) {
-      if (key !== index) handle?.mute();
-    }
     onFocus(index);
   }
 
@@ -136,9 +129,9 @@ export function Mosaic({
           ))}
         </fieldset>
         <p className="listen-label">
-          {focused ? (
+          {audible ? (
             <>
-              Listening to <strong>{focused.displayName}</strong>
+              Listening to <strong>{audible}</strong>
             </>
           ) : (
             "Click a tile to give it audio"
@@ -149,8 +142,7 @@ export function Mosaic({
           <button
             type="button"
             onClick={() => {
-              const list =
-                listening == null ? [] : (handles.current.get(listening)?.qualities() ?? []);
+              const list = focused ? (playerHandle(focused.login)?.qualities() ?? []) : [];
               setQualities(list);
               setQualityOpen((open) => !open);
             }}
@@ -160,17 +152,13 @@ export function Mosaic({
           <button type="button" onClick={() => setLayoutsOpen((open) => !open)}>
             Layouts
           </button>
-          <button
-            type="button"
-            disabled={!focused}
-            onClick={() => focused && onPopout(focused.login, true)}
-          >
+          <button type="button" disabled={!focused} onClick={onDockMini}>
             Mini
           </button>
           <button
             type="button"
             disabled={!focused}
-            onClick={() => focused && onPopout(focused.login, false)}
+            onClick={() => focused && onPopout(focused.login)}
           >
             Pop out
           </button>
@@ -188,7 +176,7 @@ export function Mosaic({
                   key={quality}
                   type="button"
                   onClick={() => {
-                    if (listening != null) handles.current.get(listening)?.setQuality(quality);
+                    if (focused) playerHandle(focused.login)?.setQuality(quality);
                     setQualityOpen(false);
                   }}
                 >
@@ -269,7 +257,9 @@ export function Mosaic({
                 </button>
                 <button type="button" className="tile-name" onClick={() => activate(index)}>
                   {tile ? tile.displayName : "Empty slot"}
-                  {focusedTile && tile ? <span className="speaker">sound</span> : null}
+                  {tile && audibleLogin === tile.login ? (
+                    <span className="speaker">sound</span>
+                  ) : null}
                 </button>
                 {tile ? (
                   <button
@@ -282,24 +272,8 @@ export function Mosaic({
                   </button>
                 ) : null}
               </header>
-              {tile && (demo || (focusedTile && armedLogin === tile.login)) ? (
-                <>
-                  <Player
-                    ref={(handle) => {
-                      handles.current.set(index, handle);
-                    }}
-                    channel={tile.login}
-                    listen={focusedTile}
-                    enabled
-                    autoplay={!holdPlayback}
-                    demo={demo}
-                  />
-                  {!focusedTile ? (
-                    <button type="button" className="tile-catch" onClick={() => activate(index)}>
-                      Click to listen
-                    </button>
-                  ) : null}
-                </>
+              {tile && liveLogins.includes(tile.login) ? (
+                <div className="tile-hole" data-channel={tile.login} />
               ) : tile ? (
                 <button type="button" className="tile-poster" onClick={() => activate(index)}>
                   {focusedTile ? "Click to play" : "Click to listen"}

@@ -1,5 +1,5 @@
 import type { NotifyMode } from "../core/live";
-import type { Settings } from "../state/settings";
+import type { AudioFollow, Settings } from "../state/settings";
 
 export function SettingsView({
   settings,
@@ -95,6 +95,32 @@ export function SettingsView({
             onChange={(event) => onChange({ hotkey: event.target.checked })}
           />
           Register the overlay hotkey
+        </label>
+      </section>
+      <section>
+        <h2>Playback</h2>
+        <label>
+          When a stream moves to the mini player
+          <select
+            value={settings.audioFollow}
+            onChange={(event) => onChange({ audioFollow: event.target.value as AudioFollow })}
+          >
+            <option value="follow">Move audio to the stream I open</option>
+            <option value="mini">Keep audio on the mini player</option>
+            <option value="focused">Only the tile or mini player I click</option>
+          </select>
+        </label>
+        <p className="hint">
+          The stream you leave keeps playing in the mini player until you close it. Switching tiles,
+          audio, or pages does not reload the video.
+        </p>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={settings.miniAlwaysOnTop}
+            onChange={(event) => onChange({ miniAlwaysOnTop: event.target.checked })}
+          />
+          Keep Glint above other windows while a mini player is open
         </label>
       </section>
       <section>

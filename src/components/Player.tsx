@@ -1,4 +1,12 @@
-import { forwardRef, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { embedParents, playerFrameSrc } from "../core/embed";
 import type { TwitchPlayerInstance } from "../twitch";
 
@@ -18,6 +26,12 @@ type PlayerProps = {
   autoplay?: boolean;
   demo?: boolean;
 };
+
+const playerHandles = new Map<string, PlayerHandle>();
+
+export function playerHandle(login: string): PlayerHandle | null {
+  return playerHandles.get(login) ?? null;
+}
 
 let embedLoader: Promise<void> | null = null;
 
@@ -52,8 +66,17 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   const hostId = `twitch-${useId().replace(/:/g, "")}`;
   const playerRef = useRef<TwitchPlayerInstance | null>(null);
   const listenRef = useRef(listen);
+  const createRef = useRef({ autoplay, enabled });
   const [failed, setFailed] = useState(false);
   listenRef.current = listen;
+  const fallbackSrc = useMemo(
+    () =>
+      playerFrameSrc(channel, embedParents(window.location.hostname), {
+        autoplay: createRef.current.autoplay,
+        muted: !listenRef.current,
+      }),
+    [channel],
+  );
 
   useImperativeHandle(ref, () => ({
     listen() {
@@ -87,10 +110,50 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   }));
 
   useEffect(() => {
-    if (demo || !enabled) return;
+    const handle: PlayerHandle = {
+      listen() {
+        call(playerRef.current, (player) => {
+          player.setMuted(false);
+          player.setVolume(1);
+          player.play();
+        });
+      },
+      mute() {
+        call(playerRef.current, (player) => {
+          player.setMuted(true);
+          player.setVolume(0);
+        });
+      },
+      qualities() {
+        try {
+          return playerRef.current?.getQualities() ?? [];
+        } catch {
+          return [];
+        }
+      },
+      setQuality(quality: string) {
+        call(playerRef.current, (player) => player.setQuality(quality));
+      },
+      latency() {
+        try {
+          const value = playerRef.current?.getPlaybackStats()?.hlsLatencyBroadcaster;
+          return typeof value === "number" && Number.isFinite(value) ? value : null;
+        } catch {
+          return null;
+        }
+      },
+    };
+    playerHandles.set(channel, handle);
+    return () => {
+      if (playerHandles.get(channel) === handle) playerHandles.delete(channel);
+    };
+  }, [channel]);
+
+  useEffect(() => {
+    if (demo || !createRef.current.enabled) return;
     let cancelled = false;
     const parents = embedParents(window.location.hostname);
-    const shouldPlay = autoplay;
+    const shouldPlay = createRef.current.autoplay;
     setFailed(false);
     void loadEmbed()
       .then(() => {
@@ -134,16 +197,20 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
       const node = document.getElementById(hostId);
       if (node) node.replaceChildren();
     };
-  }, [autoplay, channel, demo, enabled, hostId]);
+  }, [channel, demo, hostId]);
 
   useEffect(() => {
     if (listen) {
       call(playerRef.current, (player) => {
         player.setMuted(false);
+        player.setVolume(1);
         player.play();
       });
     } else {
-      call(playerRef.current, (player) => player.setMuted(true));
+      call(playerRef.current, (player) => {
+        player.setMuted(true);
+        player.setVolume(0);
+      });
     }
   }, [listen]);
 
@@ -160,14 +227,10 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     return null;
   }
   if (failed) {
-    const src = playerFrameSrc(channel, embedParents(window.location.hostname), {
-      autoplay,
-      muted: !listen,
-    });
     return (
       <iframe
         title={`${channel} on Twitch`}
-        src={src}
+        src={fallbackSrc}
         allowFullScreen
         allow="autoplay; fullscreen"
       />

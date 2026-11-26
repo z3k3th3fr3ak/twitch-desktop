@@ -85,6 +85,11 @@ export async function closeOverlay(): Promise<void> {
   if (existing) await existing.hide();
 }
 
+export async function setWindowAlwaysOnTop(enabled: boolean): Promise<void> {
+  if (!isTauri()) return;
+  await getCurrentWindow().setAlwaysOnTop(enabled);
+}
+
 export async function setClickThrough(enabled: boolean): Promise<void> {
   if (!isTauri()) return;
   await getCurrentWindow().setIgnoreCursorEvents(enabled);

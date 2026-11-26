@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   createContext,
   type ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -43,6 +44,7 @@ import {
   type Workspace,
 } from "../core/layout";
 import { diffLive, EMPTY_SEEN, type LiveStream, noteLive, type SeenLive } from "../core/live";
+import { type AudioSurface, handoffMini } from "../core/playback";
 import { buildDemo } from "../demo/fixtures";
 import { readLaunch } from "../launch";
 import {
@@ -103,6 +105,10 @@ type SessionValue = {
   searchQuery: string;
   searchHits: ChannelHit[];
   workspace: Workspace;
+  liveLogins: readonly string[];
+  miniLogin: string | null;
+  audioSurface: AudioSurface;
+  channelNames: Record<string, string>;
   savedLayouts: SavedLayout[];
   messages: Record<string, VisibleChatItem[]>;
   emotes: Map<string, Emote>;
@@ -128,7 +134,10 @@ type SessionValue = {
   sendChat: (text: string) => Promise<void>;
   testNotification: () => Promise<void>;
   openOverlay: () => Promise<void>;
-  popout: (channel: string, mini: boolean) => Promise<void>;
+  popout: (channel: string) => Promise<void>;
+  dockMini: () => void;
+  closeMini: () => void;
+  focusAudio: (surface: AudioSurface) => void;
   logout: () => Promise<void>;
   quit: () => Promise<void>;
 };
@@ -137,6 +146,14 @@ const SessionContext = createContext<SessionValue | null>(null);
 
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function gridLogins(workspace: Workspace): string[] {
+  return workspace.tiles.flatMap((tile) => (tile ? [tile.login] : []));
+}
+
+function sameLogins(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((login, index) => login === right[index]);
 }
 
 function upsertStream(list: readonly LiveStream[], stream: LiveStream): LiveStream[] {
@@ -160,6 +177,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchHits, setSearchHits] = useState<ChannelHit[]>([]);
   const [workspace, setWorkspace] = useState<Workspace>(emptyWorkspace("duo"));
+  const [liveLogins, setLiveLogins] = useState<string[]>([]);
+  const [miniLogin, setMiniLogin] = useState<string | null>(null);
+  const [audioSurface, setAudioSurface] = useState<AudioSurface>("grid");
+  const [channelNames, setChannelNames] = useState<Record<string, string>>({});
   const [savedLayouts, setSavedLayouts] = useState<SavedLayout[]>([]);
   const [seen, setSeen] = useState<SeenLive>(EMPTY_SEEN);
   const [messages, setMessages] = useState<Record<string, VisibleChatItem[]>>({});
@@ -174,6 +195,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const seenRef = useRef(seen);
   const streamsRef = useRef(streams);
   const workspaceRef = useRef(workspace);
+  const miniRef = useRef<string | null>(null);
   const joined = useRef(new Set<string>());
   const emoteCache = useRef(new Map<string, Map<string, Emote>>());
   const lastSent = useRef(0);
@@ -196,6 +218,51 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
   const updateRef = useRef(updateSettings);
   updateRef.current = updateSettings;
+
+  const noteChannels = useCallback((next: Workspace) => {
+    setChannelNames((current) => {
+      let changed = false;
+      const names = { ...current };
+      for (const tile of next.tiles) {
+        if (tile && names[tile.login] !== tile.displayName) {
+          names[tile.login] = tile.displayName;
+          changed = true;
+        }
+      }
+      return changed ? names : current;
+    });
+  }, []);
+
+  function commitWorkspace(next: Workspace, arm?: string | null) {
+    const prev = workspaceRef.current;
+    const prevGrid = gridLogins(prev);
+    const nextGrid = gridLogins(next);
+    const prevFocused = focusedChannel(prev)?.login ?? null;
+    const nextFocused = focusedChannel(next)?.login ?? null;
+    const mini = handoffMini(prevFocused, prevGrid, nextGrid, nextFocused, miniRef.current);
+    miniRef.current = mini;
+    setMiniLogin(mini);
+    setLiveLogins((live) => {
+      const keep = new Set(nextGrid);
+      if (mini) keep.add(mini);
+      let nextLive = live.filter((login) => keep.has(login));
+      if (mini && !nextLive.includes(mini)) nextLive = [...nextLive, mini];
+      if (launch.demo) {
+        for (const login of nextGrid) {
+          if (!nextLive.includes(login)) nextLive = [...nextLive, login];
+        }
+      } else {
+        const extra = arm === undefined ? (safeMode ? null : nextFocused) : arm;
+        if (extra && keep.has(extra) && !nextLive.includes(extra)) nextLive = [...nextLive, extra];
+      }
+      return sameLogins(live, nextLive) ? live : nextLive;
+    });
+    noteChannels(next);
+    workspaceRef.current = next;
+    setWorkspace(next);
+  }
+  const commitRef = useRef(commitWorkspace);
+  commitRef.current = commitWorkspace;
 
   const refreshing = useRef(false);
 
@@ -300,6 +367,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setAuth(demo.auth);
         setFavorites(demo.favorites);
         setWorkspace(demo.workspace);
+        workspaceRef.current = demo.workspace;
+        setLiveLogins(gridLogins(demo.workspace));
+        noteChannels(demo.workspace);
         setSavedLayouts(demo.savedLayouts);
         setStreams(demo.streams);
         setMessages(demo.messages);
@@ -321,7 +391,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setSafeMode(info.safeMode);
         setLogPath(info.logPath);
         const restored = persisted.workspace ?? emptyWorkspace(info.safeMode ? "solo" : "duo");
-        setWorkspace(info.safeMode ? safeWorkspace(restored) : restored);
+        const initial = info.safeMode ? safeWorkspace(restored) : restored;
+        setWorkspace(initial);
+        workspaceRef.current = initial;
+        noteChannels(initial);
+        if (!info.safeMode) {
+          const focused = focusedChannel(initial)?.login ?? null;
+          if (focused) setLiveLogins([focused]);
+        }
         setSavedLayouts(persisted.savedLayouts);
         setSeen(persisted.seen);
         seenRef.current = persisted.seen;
@@ -356,7 +433,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [launch.demo]);
+  }, [launch.demo, noteChannels]);
 
   useEffect(() => {
     if (!booted || launch.demo) return;
@@ -474,8 +551,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             ? { login: stream.login, userId: stream.userId, displayName: stream.displayName }
             : favorite;
           if (!channel) return;
-          setWorkspace((current) => openChannel(current, channel));
+          commitRef.current(openChannel(workspaceRef.current, channel), channel.login);
           setView("watch");
+          setAudioSurface("grid");
         }),
         onApp<null>("tray-overlay", () => {
           void toggleOverlay();
@@ -733,6 +811,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     searchQuery,
     searchHits,
     workspace,
+    liveLogins,
+    miniLogin,
+    audioSurface,
+    channelNames,
     savedLayouts,
     messages,
     emotes,
@@ -765,30 +847,34 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     },
     updateSettings,
     watch(channel) {
-      setWorkspace((current) => openChannel(current, channel));
+      setAudioSurface("grid");
       setView("watch");
+      commitWorkspace(openChannel(workspaceRef.current, channel), channel.login);
     },
     focusTile(index) {
-      setWorkspace((current) => focusWorkspaceTile(current, index));
+      const tile = workspaceRef.current.tiles[index];
+      setAudioSurface("grid");
+      commitWorkspace(focusWorkspaceTile(workspaceRef.current, index), tile?.login ?? null);
     },
     moveTile(from, to) {
-      setWorkspace((current) => moveWorkspaceTile(current, from, to));
+      commitWorkspace(moveWorkspaceTile(workspaceRef.current, from, to));
     },
     placeChannel(index, channel) {
-      setWorkspace((current) => placeWorkspaceChannel(current, index, channel));
+      setAudioSurface("grid");
+      commitWorkspace(placeWorkspaceChannel(workspaceRef.current, index, channel), channel.login);
     },
     clearTile(index) {
-      setWorkspace((current) => clearWorkspaceTile(current, index));
+      commitWorkspace(clearWorkspaceTile(workspaceRef.current, index), null);
     },
     setLayout(layout) {
-      setWorkspace((current) => setWorkspaceLayout(current, layout));
+      commitWorkspace(setWorkspaceLayout(workspaceRef.current, layout));
     },
     saveLayout(name) {
       setSavedLayouts((current) => saveNamedLayout(current, name, workspaceRef.current));
     },
     restoreLayout(id) {
       const saved = savedLayouts.find((layout) => layout.id === id);
-      if (saved) setWorkspace(saved.workspace);
+      if (saved) commitWorkspace(saved.workspace);
     },
     deleteLayout(id) {
       setSavedLayouts((current) => removeNamedLayout(current, id));
@@ -805,7 +891,35 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       await notify("Glint", "Go-live toasts look like this.");
     },
     openOverlay: showOverlay,
-    popout: openPopout,
+    popout: (channel) => openPopout(channel, false),
+    dockMini() {
+      const current = workspaceRef.current;
+      const focused = focusedChannel(current);
+      if (!focused) return;
+      miniRef.current = focused.login;
+      setMiniLogin(focused.login);
+      setChannelNames((names) =>
+        names[focused.login] === focused.displayName
+          ? names
+          : { ...names, [focused.login]: focused.displayName },
+      );
+      commitWorkspace(clearWorkspaceTile(current, current.focus), focused.login);
+    },
+    closeMini() {
+      const login = miniRef.current;
+      miniRef.current = null;
+      setMiniLogin(null);
+      setAudioSurface("grid");
+      if (!login) return;
+      setLiveLogins((live) => {
+        if (gridLogins(workspaceRef.current).includes(login)) return live;
+        const next = live.filter((item) => item !== login);
+        return sameLogins(live, next) ? live : next;
+      });
+    },
+    focusAudio(surface) {
+      setAudioSurface(surface);
+    },
     async logout() {
       pollStop.current?.();
       if (isTauri()) {
@@ -817,7 +931,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       joined.current.clear();
       subs.current = { sessionId: "", key: "", ids: [] };
       authRef.current = null;
+      miniRef.current = null;
       setAuth(null);
+      setMiniLogin(null);
+      setLiveLogins([]);
       setStreams([]);
       setMessages({});
       setPhase("setup");

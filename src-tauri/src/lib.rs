@@ -178,7 +178,7 @@ pub fn run() {
     let http = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(20))
-        .user_agent("Glint/0.1.2 (Twitch desktop companion)")
+        .user_agent("Glint/0.1.3 (Twitch desktop companion)")
         .build()
         .expect("HTTP client");
 
