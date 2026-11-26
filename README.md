@@ -23,6 +23,7 @@ Glint only uses documented Twitch surfaces:
 Those choices show up in the player:
 
 - Quality uses `getQualities` and `setQuality`. If the embed has not reported qualities yet, use the gear menu inside the player. That menu is the same official control.
+- The Windows release is served from `https://tauri.localhost` (`useHttpsScheme`). Twitch refuses to frame `http://tauri.localhost`. The embed `parent` list is the page host plus `tauri.localhost` and `localhost`. Dev stays on `http://localhost`, which Twitch allows. Chat is IRC, not the Twitch chat iframe.
 - There is **no low-latency toggle**. The embed does not expose one. When `getPlaybackStats()` returns `hlsLatencyBroadcaster`, Glint shows that number. It does not change latency.
 - Twitch requires each embed to be at least 400×300. Popout and mini windows respect that. A 4-up or 6-up grid on a small window can fall under it, and a tile may stay blank until you enlarge the window or pop that stream out. The grid says so when it happens.
 - Third-party emotes come from the public 7TV, BetterTTV, and FrankerFaceZ HTTP APIs. Zero-width 7TV overlays are not drawn yet.
@@ -47,7 +48,7 @@ This is the core of the app, not a later extra.
 - A toast when a favorite goes live. You can switch that to every follow, or off. The first refresh does not toast everyone who is already live.
 - Popout player and a pinned mini player, both at least 400×300.
 - Chat with Twitch, 7TV, BTTV, and FFZ emotes, mention highlighting, and a word filter.
-- Transparent, always-on-top chat overlay. Ctrl+Alt+G shows it. Click-through is a toggle; the hotkey turns click-through off so you can reach the controls again.
+- Transparent, always-on-top chat overlay. Ctrl+Alt+G shows or hides it. The **×** in the corner closes it, including while click-through is on, and Escape closes it when the overlay is focused.
 - Ember and Dusk themes, start-with-Windows (launches minimized to the tray), and a test toast button.
 
 ## Not in this version

@@ -5,12 +5,13 @@ import type { Emote } from "../core/emotes";
 import { messageHidden, nextSendAt, normalizeWords } from "../core/filter";
 import { chatEventFromIrc, parseIrcLine, reduceChannel, type VisibleChatItem } from "../core/irc";
 import type { TileChannel } from "../core/layout";
+import { pointerInOverlayHandle } from "../core/overlay-hit";
 import { buildDemo } from "../demo/fixtures";
 import type { Launch } from "../launch";
 import { chatSend, emitApp, isTauri, loadSecret, onApp } from "../platform/backend";
 import { loadPersisted } from "../platform/storage";
 import { loadChannelEmotes } from "../platform/twitch";
-import { setClickThrough } from "../platform/windows";
+import { closeOverlay, setClickThrough } from "../platform/windows";
 import { DEFAULT_SETTINGS, parseSettings, type Settings } from "../state/settings";
 
 export function Overlay({ launch }: { launch: Launch }) {
@@ -29,9 +30,57 @@ export function Overlay({ launch }: { launch: Launch }) {
   useEffect(() => {
     document.documentElement.dataset.theme = settings.theme;
     document.documentElement.style.setProperty("--pill", String(settings.overlayOpacity));
+  }, [settings]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") void closeOverlay();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
     if (launch.demo || !isTauri()) return;
-    void setClickThrough(settings.clickThrough);
-  }, [settings, launch.demo]);
+    if (!settings.clickThrough) {
+      void setClickThrough(false);
+      return;
+    }
+    let stopped = false;
+    let ignoring = true;
+    let busy = false;
+    void setClickThrough(true);
+    const id = window.setInterval(() => {
+      if (busy || stopped) return;
+      busy = true;
+      void (async () => {
+        try {
+          const { cursorPosition, getCurrentWindow } = await import("@tauri-apps/api/window");
+          const win = getCurrentWindow();
+          const [cursor, origin, size, scale] = await Promise.all([
+            cursorPosition(),
+            win.outerPosition(),
+            win.outerSize(),
+            win.scaleFactor(),
+          ]);
+          const overHandle = pointerInOverlayHandle(cursor, origin, size, scale);
+          const nextIgnore = !overHandle;
+          if (nextIgnore !== ignoring) {
+            ignoring = nextIgnore;
+            await setClickThrough(nextIgnore);
+          }
+        } catch {
+          // Cursor checks can fail while the window is closing.
+        } finally {
+          busy = false;
+        }
+      })();
+    }, 80);
+    return () => {
+      stopped = true;
+      window.clearInterval(id);
+    };
+  }, [settings.clickThrough, launch.demo]);
 
   useEffect(() => {
     if (launch.demo || !isTauri()) return;
@@ -100,6 +149,14 @@ export function Overlay({ launch }: { launch: Launch }) {
 
   return (
     <div className="overlay-root">
+      <button
+        type="button"
+        className="overlay-close"
+        aria-label="Close overlay"
+        onClick={() => void closeOverlay()}
+      >
+        ×
+      </button>
       <div className="overlay-toolbar" data-tauri-drag-region>
         <strong data-tauri-drag-region>{channel ? `#${channel.login}` : "Overlay"}</strong>
         <button

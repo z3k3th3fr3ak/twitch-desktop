@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
+import { embedParents, playerFrameSrc } from "../core/embed";
 import type { TwitchPlayerInstance } from "../twitch";
 
 export type PlayerHandle = {
@@ -88,7 +89,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
   useEffect(() => {
     if (demo || !enabled) return;
     let cancelled = false;
-    const parent = window.location.hostname || "localhost";
+    const parents = embedParents(window.location.hostname);
     const shouldPlay = autoplay;
     setFailed(false);
     void loadEmbed()
@@ -101,7 +102,7 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
           width: "100%",
           height: "100%",
           channel,
-          parent: [parent],
+          parent: parents,
           autoplay: shouldPlay,
           muted: !listenRef.current,
         });
@@ -159,8 +160,10 @@ export const Player = forwardRef<PlayerHandle, PlayerProps>(function Player(
     return null;
   }
   if (failed) {
-    const parent = window.location.hostname || "localhost";
-    const src = `https://player.twitch.tv/?channel=${encodeURIComponent(channel)}&parent=${encodeURIComponent(parent)}&autoplay=true&muted=${listen ? "false" : "true"}`;
+    const src = playerFrameSrc(channel, embedParents(window.location.hostname), {
+      autoplay,
+      muted: !listen,
+    });
     return (
       <iframe
         title={`${channel} on Twitch`}

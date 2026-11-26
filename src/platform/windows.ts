@@ -31,6 +31,7 @@ export async function openPopout(channel: string, mini: boolean): Promise<void> 
     decorations: true,
     resizable: true,
     center: false,
+    useHttpsScheme: true,
   });
 }
 
@@ -74,7 +75,14 @@ function createOverlay(): void {
     skipTaskbar: true,
     resizable: true,
     focus: true,
+    useHttpsScheme: true,
   });
+}
+
+export async function closeOverlay(): Promise<void> {
+  if (!isTauri()) return;
+  const existing = await WebviewWindow.getByLabel("overlay");
+  if (existing) await existing.hide();
 }
 
 export async function setClickThrough(enabled: boolean): Promise<void> {
