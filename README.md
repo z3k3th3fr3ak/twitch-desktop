@@ -34,14 +34,14 @@ The Client ID is yours. Put it in the first-run screen. It is stored in Glint's 
 
 This is the core of the app, not a later extra.
 
-- The grid switcher is **1, 2, 3, 4, or 6** streams. Three-up keeps one large tile and two stacked beside it.
+- The grid switcher is **1, 2, 3, 4, or 6** streams. Three-up keeps one large tile and two stacked beside it. Four-up is four equal quadrants that fill the area beside the channel list. Each stream has its own chat directly under it. Hide a chat with its **×** and the stream fills that quadrant; **Chat** on the tile, or **Show chats**, brings them back. Those choices are saved with layouts and restored on the next launch. The other grids keep the single chat column.
 - Players stay mounted. Changing the focused tile, the page, or which one has audio calls mute and volume on the embed. It does not reload the iframe.
 - Only one tile is unmuted at a time. Click a tile once and the sound moves there. The others keep playing, muted.
 - Opening a stream that replaces the one you were watching parks that stream in a mini player until you close it. Settings chooses where the audio goes: the new stream (the default, mini muted), the mini player, or only the surface you click. “Above windows” keeps Glint on top while the mini player is open, using the same iframe.
 - Drag a tile by the grip in its header, or drag a channel from the list onto a slot.
 - Clicking a channel fills the first empty slot, or replaces the focused one when the grid is full. Clicking a channel that is already on the grid just gives it sound. A stream that is still on the grid stays in its tile.
 - **Layouts** saves the current grid by name (up to 12) and restores it. The last arrangement is also restored the next time you open Glint.
-- The chat column, and the overlay, follow the focused stream.
+- On grids other than four-up, the chat column and the overlay follow the focused stream. Four-up joins all four channels on the one IRC connection and only paints the latest page of each open chat.
 
 ## Also in this version
 

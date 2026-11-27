@@ -7,12 +7,16 @@ import {
   listeningIndex,
   moveTile,
   openChannel,
+  parseWorkspace,
   placeChannel,
   removeNamedLayout,
   safeWorkspace,
   saveNamedLayout,
+  setAllTileChats,
+  setTileChat,
   setWorkspaceLayout,
   type TileChannel,
+  videoSlotSize,
 } from "./layout";
 
 const harbor: TileChannel = { login: "harbor", userId: "1", displayName: "Harbor" };
@@ -99,6 +103,47 @@ describe("safe mode", () => {
     expect(safe.layout).toBe("solo");
     expect(safe.tiles).toEqual([harbor]);
     expect(safe.focus).toBe(0);
+  });
+});
+
+describe("quad chats", () => {
+  it("opens a chat under every quadrant until one is hidden", () => {
+    let grid = emptyWorkspace("quad");
+    for (const channel of [harbor, kiln, north, tide]) grid = openChannel(grid, channel);
+    expect(grid.chats).toEqual([true, true, true, true]);
+    const hidden = setTileChat(grid, 1, false);
+    expect(hidden.tiles.map((tile) => tile?.login)).toEqual(grid.tiles.map((tile) => tile?.login));
+    expect(hidden.focus).toBe(grid.focus);
+    expect(hidden.chats).toEqual([true, false, true, true]);
+    expect(setAllTileChats(hidden, false).chats).toEqual([false, false, false, false]);
+    expect(setAllTileChats(hidden, true).chats).toEqual([true, true, true, true]);
+  });
+
+  it("keeps a hidden chat with its stream and in a saved layout", () => {
+    let grid = emptyWorkspace("quad");
+    for (const channel of [harbor, kiln, north, tide]) grid = openChannel(grid, channel);
+    grid = setTileChat({ ...grid, focus: 0 }, 0, false);
+    const moved = moveTile(grid, 0, 3);
+    expect(moved.tiles[3]?.login).toBe("harbor");
+    expect(moved.chats[3]).toBe(false);
+    expect(moved.chats[0]).toBe(true);
+    const saved = saveNamedLayout([], "Quad", moved);
+    const restored = parseWorkspace(saved[0]?.workspace);
+    expect(restored?.chats).toEqual(moved.chats);
+    expect(restored?.tiles.map((tile) => tile?.login)).toEqual([
+      "lowtide",
+      "kiln",
+      "northline",
+      "harbor",
+    ]);
+  });
+
+  it("gives a hidden chat's space back to the video", () => {
+    const open = videoSlotSize(800, 500, true);
+    const shut = videoSlotSize(800, 500, false);
+    expect(shut.height).toBeGreaterThan(open.height);
+    expect(shut.width).toBe(open.width);
+    expect(videoSlotSize(400, 400, true).height).toBeLessThan(300);
   });
 });
 

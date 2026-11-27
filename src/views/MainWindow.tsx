@@ -26,6 +26,7 @@ export function MainWindow() {
         })
       : [];
   const audibleLogin = plan.find((player) => player.audible)?.login ?? null;
+  const quadChats = session.view === "watch" && session.workspace.layout === "quad";
   const subtitle = focused
     ? `Listening to ${focused.displayName}`
     : session.phase === "app"
@@ -50,7 +51,15 @@ export function MainWindow() {
         />
       ) : null}
       {session.phase === "app" ? (
-        <div className={session.view === "settings" ? "workspace settings-mode" : "workspace"}>
+        <div
+          className={
+            session.view === "settings"
+              ? "workspace settings-mode"
+              : quadChats
+                ? "workspace quad-chats"
+                : "workspace"
+          }
+        >
           <nav className="rail">
             <button
               type="button"
@@ -119,19 +128,31 @@ export function MainWindow() {
                   onDelete={session.deleteLayout}
                   onPopout={(channel) => void session.popout(channel)}
                   onDockMini={session.dockMini}
+                  onTileChat={session.setTileChat}
+                  onAllChats={session.setAllChats}
+                  messages={session.messages}
+                  emotePacks={session.emotePacks}
+                  selfLogin={session.auth?.login ?? ""}
+                  chatStatus={session.chatStatus}
+                  filterText={session.settings.filterText}
+                  highlightMentions={session.settings.mentionHighlight}
+                  chatFontSize={session.settings.chatFontSize}
+                  onSendChat={(login, text) => void session.sendChat(text, login)}
                 />
               </div>
-              <Chat
-                channel={focused?.login ?? null}
-                items={focused ? (session.messages[focused.login] ?? []) : []}
-                emotes={session.emotes}
-                selfLogin={session.auth?.login ?? ""}
-                status={session.chatStatus}
-                filterText={session.settings.filterText}
-                highlight={session.settings.mentionHighlight}
-                fontSize={session.settings.chatFontSize}
-                onSend={session.sendChat}
-              />
+              {quadChats ? null : (
+                <Chat
+                  channel={focused?.login ?? null}
+                  items={focused ? (session.messages[focused.login] ?? []) : []}
+                  emotes={session.emotes}
+                  selfLogin={session.auth?.login ?? ""}
+                  status={session.chatStatus}
+                  filterText={session.settings.filterText}
+                  highlight={session.settings.mentionHighlight}
+                  fontSize={session.settings.chatFontSize}
+                  onSend={session.sendChat}
+                />
+              )}
             </>
           )}
           <PlayerLayer
@@ -139,6 +160,8 @@ export function MainWindow() {
             demo={session.demo}
             names={session.channelNames}
             watchLayout={session.view === "watch"}
+            sideChat={session.view === "watch" && !quadChats}
+            measureKey={`${session.workspace.layout}:${session.workspace.chats.join("")}`}
             audioFollow={session.settings.audioFollow}
             pinned={session.settings.miniAlwaysOnTop}
             onTogglePin={() =>

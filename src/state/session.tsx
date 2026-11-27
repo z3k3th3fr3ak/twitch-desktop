@@ -39,7 +39,9 @@ import {
   type SavedLayout,
   safeWorkspace,
   saveNamedLayout,
+  setAllTileChats,
   setWorkspaceLayout,
+  setTileChat as setWorkspaceTileChat,
   type TileChannel,
   type Workspace,
 } from "../core/layout";
@@ -112,6 +114,7 @@ type SessionValue = {
   savedLayouts: SavedLayout[];
   messages: Record<string, VisibleChatItem[]>;
   emotes: Map<string, Emote>;
+  emotePacks: Record<string, Map<string, Emote>>;
   chatStatus: string;
   setView: (view: View) => void;
   setSearchQuery: (query: string) => void;
@@ -131,7 +134,9 @@ type SessionValue = {
   restoreLayout: (id: string) => void;
   deleteLayout: (id: string) => void;
   toggleFavorite: (favorite: Favorite) => void;
-  sendChat: (text: string) => Promise<void>;
+  sendChat: (text: string, login?: string) => Promise<void>;
+  setTileChat: (index: number, open: boolean) => void;
+  setAllChats: (open: boolean) => void;
   testNotification: () => Promise<void>;
   openOverlay: () => Promise<void>;
   popout: (channel: string) => Promise<void>;
@@ -185,6 +190,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [seen, setSeen] = useState<SeenLive>(EMPTY_SEEN);
   const [messages, setMessages] = useState<Record<string, VisibleChatItem[]>>({});
   const [emotes, setEmotes] = useState<Map<string, Emote>>(new Map());
+  const [emotePacks, setEmotePacks] = useState<Record<string, Map<string, Emote>>>({});
   const [chatStatus, setChatStatus] = useState("offline");
   const [safeMode, setSafeMode] = useState(false);
   const [logPath, setLogPath] = useState("");
@@ -374,6 +380,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setStreams(demo.streams);
         setMessages(demo.messages);
         setEmotes(demo.emotes);
+        setEmotePacks(
+          Object.fromEntries(
+            demo.workspace.tiles.flatMap((tile) => (tile ? [[tile.userId, demo.emotes]] : [])),
+          ),
+        );
         setChatStatus("ready");
         setPhase("app");
         setBooted(true);
@@ -579,21 +590,31 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const focused = focusedChannel(workspace);
     if (isTauri()) void emitApp("workspace-focus", focused).catch(() => undefined);
     void actions.current.sync(workspace);
-    if (!focused) return;
-    const cached = emoteCache.current.get(focused.userId);
-    if (cached) {
-      setEmotes(cached);
-      return;
-    }
+    const channels = channelsInWorkspace(workspace);
+    if (!focused) setEmotes(new Map());
     let cancelled = false;
-    void loadChannelEmotes(focused.userId)
-      .then((pack) => {
-        emoteCache.current.set(focused.userId, pack);
-        if (!cancelled) setEmotes(pack);
-      })
-      .catch(() => {
-        if (!cancelled) setEmotes(new Map());
-      });
+    for (const channel of channels) {
+      const cached = emoteCache.current.get(channel.userId);
+      if (cached) {
+        if (channel.userId === focused?.userId) setEmotes(cached);
+        setEmotePacks((current) =>
+          current[channel.userId] === cached ? current : { ...current, [channel.userId]: cached },
+        );
+        continue;
+      }
+      void loadChannelEmotes(channel.userId)
+        .then((pack) => {
+          emoteCache.current.set(channel.userId, pack);
+          if (cancelled) return;
+          setEmotePacks((current) => ({ ...current, [channel.userId]: pack }));
+          if (focusedChannel(workspaceRef.current)?.userId === channel.userId) setEmotes(pack);
+        })
+        .catch(() => {
+          if (!cancelled && focusedChannel(workspaceRef.current)?.userId === channel.userId) {
+            setEmotes(new Map());
+          }
+        });
+    }
     return () => {
       cancelled = true;
     };
@@ -761,8 +782,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function sendChat(text: string) {
-    const channel = focusedChannel(workspaceRef.current);
+  async function sendChat(text: string, login?: string) {
+    const channel = login
+      ? (channelsInWorkspace(workspaceRef.current).find((item) => item.login === login) ?? null)
+      : focusedChannel(workspaceRef.current);
     if (!channel) return;
     if (launch.demo) {
       setMessages((current) => ({
@@ -818,6 +841,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     savedLayouts,
     messages,
     emotes,
+    emotePacks,
     chatStatus,
     setView,
     setSearchQuery,
@@ -878,6 +902,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     },
     deleteLayout(id) {
       setSavedLayouts((current) => removeNamedLayout(current, id));
+    },
+    setTileChat(index, open) {
+      const next = setWorkspaceTileChat(workspaceRef.current, index, open);
+      workspaceRef.current = next;
+      setWorkspace(next);
+    },
+    setAllChats(open) {
+      const next = setAllTileChats(workspaceRef.current, open);
+      workspaceRef.current = next;
+      setWorkspace(next);
     },
     toggleFavorite(favorite) {
       setFavorites((current) =>

@@ -10,6 +10,8 @@ export type Workspace = {
   layout: GridLayout;
   tiles: Array<TileChannel | null>;
   focus: number;
+  /** Per-slot chat visibility. Quad shows each open chat under that stream. */
+  chats: boolean[];
 };
 
 export type SavedLayout = {
@@ -66,19 +68,28 @@ export function asTileChannel(value: unknown): TileChannel | null {
 
 /** Safe mode keeps one channel and does not restore a multi-stream grid. */
 export function safeWorkspace(workspace: Workspace): Workspace {
-  const first = workspace.tiles.find((tile) => tile != null) ?? null;
-  return normalizeWorkspace({ layout: "solo", tiles: [first], focus: 0 });
+  const index = workspace.tiles.findIndex((tile) => tile != null);
+  const first = index >= 0 ? workspace.tiles[index] : null;
+  const chat = index >= 0 ? workspace.chats[index] !== false : true;
+  return normalizeWorkspace({ layout: "solo", tiles: [first], focus: 0, chats: [chat] });
 }
 
 export function emptyWorkspace(layout: GridLayout = "duo"): Workspace {
+  const count = slotCount(layout);
   return {
     layout,
-    tiles: Array.from({ length: slotCount(layout) }, () => null),
+    tiles: Array.from({ length: count }, () => null),
     focus: 0,
+    chats: Array.from({ length: count }, () => true),
   };
 }
 
-export function normalizeWorkspace(workspace: Workspace): Workspace {
+export function normalizeWorkspace(workspace: {
+  layout: string;
+  tiles: readonly unknown[];
+  focus: number;
+  chats?: readonly boolean[];
+}): Workspace {
   const layout = isGridLayout(workspace.layout) ? workspace.layout : "duo";
   const count = slotCount(layout);
   const seen = new Set<string>();
@@ -93,7 +104,44 @@ export function normalizeWorkspace(workspace: Workspace): Workspace {
     tiles.push(tile);
   }
   const focus = workspace.focus >= 0 && workspace.focus < count ? workspace.focus : 0;
-  return { layout, tiles, focus };
+  const chats = Array.from({ length: count }, (_, index) => workspace.chats?.[index] !== false);
+  return { layout, tiles, focus, chats };
+}
+
+export function tileChatOpen(workspace: Workspace, index: number): boolean {
+  return workspace.chats[index] !== false;
+}
+
+export function everyTileChatOpen(workspace: Workspace): boolean {
+  return workspace.chats.every((open) => open !== false);
+}
+
+export function setTileChat(workspace: Workspace, index: number, open: boolean): Workspace {
+  const count = slotCount(workspace.layout);
+  if (index < 0 || index >= count) return workspace;
+  if (tileChatOpen(workspace, index) === open) return workspace;
+  const chats = Array.from({ length: count }, (_, chatIndex) =>
+    chatIndex === index ? open : workspace.chats[chatIndex] !== false,
+  );
+  return { ...workspace, chats };
+}
+
+export function setAllTileChats(workspace: Workspace, open: boolean): Workspace {
+  if (workspace.chats.every((value) => (value !== false) === open)) return workspace;
+  return {
+    ...workspace,
+    chats: Array.from({ length: slotCount(workspace.layout) }, () => open),
+  };
+}
+
+/** Video area inside a tile. Quad chats sit under the stream and give the rest back when hidden. */
+export function videoSlotSize(
+  width: number,
+  height: number,
+  chatOpen: boolean,
+): { width: number; height: number } {
+  const chat = chatOpen ? Math.max(112, height * 0.22) : 0;
+  return { width, height: Math.max(0, height - 34 - chat) };
 }
 
 export function setWorkspaceLayout(workspace: Workspace, layout: GridLayout): Workspace {
@@ -142,10 +190,14 @@ export function moveTile(workspace: Workspace, from: number, to: number): Worksp
   const moving = tiles[from] ?? null;
   tiles[from] = tiles[to] ?? null;
   tiles[to] = moving;
+  const chats = workspace.chats.map((open) => open !== false);
+  const movingChat = chats[from] ?? true;
+  chats[from] = chats[to] ?? true;
+  chats[to] = movingChat;
   let focus = workspace.focus;
   if (focus === from) focus = to;
   else if (focus === to) focus = from;
-  return normalizeWorkspace({ ...workspace, tiles, focus });
+  return normalizeWorkspace({ ...workspace, tiles, focus, chats });
 }
 
 /** Sound belongs to the focused tile, and only when that tile has a channel. */
@@ -194,7 +246,15 @@ export function parseWorkspace(value: unknown): Workspace | null {
   if (!isGridLayout(layout)) return null;
   const tiles = Array.isArray(record.tiles) ? record.tiles : [];
   const focus = typeof record.focus === "number" ? record.focus : 0;
-  return normalizeWorkspace({ layout, tiles: tiles.map((tile) => asTileChannel(tile)), focus });
+  const chats = Array.isArray(record.chats)
+    ? record.chats.map((open) => open !== false)
+    : undefined;
+  return normalizeWorkspace({
+    layout,
+    tiles: tiles.map((tile) => asTileChannel(tile)),
+    focus,
+    chats,
+  });
 }
 
 export function parseSavedLayouts(value: unknown): SavedLayout[] {

@@ -1,6 +1,9 @@
 import { type DragEvent, useEffect, useRef, useState } from "react";
+import type { Emote } from "../core/emotes";
+import type { VisibleChatItem } from "../core/irc";
 import {
   asTileChannel,
+  everyTileChatOpen,
   focusedChannel,
   type GridLayout,
   layoutLabel,
@@ -8,12 +11,16 @@ import {
   type SavedLayout,
   slotCount,
   type TileChannel,
+  tileChatOpen,
+  videoSlotSize,
   type Workspace,
 } from "../core/layout";
 import { qualityLabel } from "../core/live";
 import { playerHandle } from "./Player";
+import { TileChat } from "./TileChat";
 
 const LAYOUTS: GridLayout[] = ["solo", "duo", "trio", "quad", "six"];
+const NO_EMOTES: ReadonlyMap<string, Emote> = new Map();
 
 export function Mosaic({
   workspace,
@@ -31,6 +38,16 @@ export function Mosaic({
   onDelete,
   onPopout,
   onDockMini,
+  onTileChat,
+  onAllChats,
+  messages,
+  emotePacks,
+  selfLogin,
+  chatStatus,
+  filterText,
+  highlightMentions,
+  chatFontSize,
+  onSendChat,
 }: {
   workspace: Workspace;
   demo?: boolean;
@@ -47,6 +64,16 @@ export function Mosaic({
   onDelete: (id: string) => void;
   onPopout: (channel: string) => void;
   onDockMini: () => void;
+  onTileChat: (index: number, open: boolean) => void;
+  onAllChats: (open: boolean) => void;
+  messages: Record<string, VisibleChatItem[]>;
+  emotePacks: Record<string, ReadonlyMap<string, Emote>>;
+  selfLogin: string;
+  chatStatus: string;
+  filterText: string;
+  highlightMentions: boolean;
+  chatFontSize: number;
+  onSendChat: (login: string, text: string) => void;
 }) {
   const frame = useRef<HTMLDivElement>(null);
   const [cramped, setCramped] = useState(false);
@@ -70,13 +97,17 @@ export function Mosaic({
       const rows = workspace.layout === "solo" || workspace.layout === "duo" ? 1 : 2;
       const tileWidth = node.clientWidth / columns;
       const tileHeight = node.clientHeight / rows;
-      setCramped(tileWidth < 400 || tileHeight < 300);
+      const chatOpen =
+        workspace.layout === "quad" &&
+        workspace.tiles.some((tile, index) => tile != null && tileChatOpen(workspace, index));
+      const video = videoSlotSize(tileWidth, tileHeight, chatOpen);
+      setCramped(video.width < 400 || video.height < 300);
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [workspace.layout]);
+  }, [workspace]);
 
   useEffect(() => {
     const channel = focused?.login ?? "";
@@ -137,6 +168,7 @@ export function Mosaic({
             "Click a tile to give it audio"
           )}
           {latency != null ? <span className="latency">{latency.toFixed(1)}s latency</span> : null}
+          {workspace.layout === "quad" ? <span className="latency">{chatStatus}</span> : null}
         </p>
         <div className="stage-actions">
           <button
@@ -152,6 +184,15 @@ export function Mosaic({
           <button type="button" onClick={() => setLayoutsOpen((open) => !open)}>
             Layouts
           </button>
+          {workspace.layout === "quad" ? (
+            <button
+              type="button"
+              aria-pressed={everyTileChatOpen(workspace)}
+              onClick={() => onAllChats(!everyTileChatOpen(workspace))}
+            >
+              {everyTileChatOpen(workspace) ? "Hide chats" : "Show chats"}
+            </button>
+          ) : null}
           <button type="button" disabled={!focused} onClick={onDockMini}>
             Mini
           </button>
@@ -229,15 +270,24 @@ export function Mosaic({
         <p className="cramped">
           Twitch’s player wants each video at least 400×300. This grid is tighter than that, so a
           tile may stay blank until the window is larger.
+          {workspace.layout === "quad"
+            ? " Hiding a chat gives that stream the whole quadrant."
+            : ""}
         </p>
       ) : null}
       <div ref={frame} className="mosaic" data-layout={workspace.layout}>
         {workspace.tiles.map((tile, index) => {
           const focusedTile = index === workspace.focus;
+          const quad = workspace.layout === "quad";
+          const chatOpen = quad && tile != null && tileChatOpen(workspace, index);
           return (
             <article
               key={tile?.login ?? `empty-${index}`}
-              className={focusedTile ? "tile focus" : "tile"}
+              className={
+                focusedTile
+                  ? `tile focus${chatOpen ? " chat-open" : ""}`
+                  : `tile${chatOpen ? " chat-open" : ""}`
+              }
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => acceptDrop(event, index)}
             >
@@ -261,6 +311,16 @@ export function Mosaic({
                     <span className="speaker">sound</span>
                   ) : null}
                 </button>
+                {quad && tile && !chatOpen ? (
+                  <button
+                    type="button"
+                    className="tile-chat-show"
+                    aria-label={`Show chat for ${tile.displayName}`}
+                    onClick={() => onTileChat(index, true)}
+                  >
+                    Chat
+                  </button>
+                ) : null}
                 {tile ? (
                   <button
                     type="button"
@@ -283,6 +343,20 @@ export function Mosaic({
                   Drop a channel here, or select this slot and click one in the list.
                 </button>
               )}
+              {chatOpen && tile ? (
+                <TileChat
+                  channel={tile.login}
+                  displayName={tile.displayName}
+                  items={messages[tile.login] ?? []}
+                  emotes={emotePacks[tile.userId] ?? NO_EMOTES}
+                  selfLogin={selfLogin}
+                  filterText={filterText}
+                  highlight={highlightMentions}
+                  fontSize={chatFontSize}
+                  onSend={(text) => onSendChat(tile.login, text)}
+                  onHide={() => onTileChat(index, false)}
+                />
+              ) : null}
             </article>
           );
         })}

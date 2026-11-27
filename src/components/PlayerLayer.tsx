@@ -10,6 +10,8 @@ export function PlayerLayer({
   demo,
   names,
   watchLayout,
+  sideChat,
+  measureKey,
   audioFollow,
   pinned,
   onTogglePin,
@@ -21,6 +23,8 @@ export function PlayerLayer({
   demo: boolean;
   names: Record<string, string>;
   watchLayout: boolean;
+  sideChat: boolean;
+  measureKey: string;
   audioFollow: AudioFollow;
   pinned: boolean;
   onTogglePin: () => void;
@@ -59,7 +63,9 @@ export function PlayerLayer({
         return item.slice(split + 1) === "tile" ? [login] : [];
       }),
     );
+    const layoutStamp = measureKey;
     const measure = () => {
+      if (layoutStamp !== measureKey) return;
       if (!watchLayout) {
         setRects((current) => (Object.keys(current).length === 0 ? current : {}));
         return;
@@ -89,7 +95,7 @@ export function PlayerLayer({
       observer.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, [signature, watchLayout]);
+  }, [signature, watchLayout, measureKey]);
 
   return (
     <div className="player-layer">
@@ -100,7 +106,7 @@ export function PlayerLayer({
           <div
             key={login}
             className={`player-frame ${player.place}`}
-            style={frameStyle(player, rects[login], watchLayout)}
+            style={frameStyle(player, rects[login], sideChat)}
           >
             <Player channel={login} listen={player.audible} autoplay demo={demo} />
             {player.place === "tile" && !player.audible ? (
@@ -138,7 +144,7 @@ export function PlayerLayer({
 function frameStyle(
   player: PlacedPlayer,
   rect: Rect | undefined,
-  watchLayout: boolean,
+  sideChat: boolean,
 ): CSSProperties {
   if (player.place === "hidden" || (player.place === "tile" && !rect)) {
     return {
@@ -154,7 +160,7 @@ function frameStyle(
   if (player.place === "mini") {
     return {
       position: "fixed",
-      right: watchLayout ? "calc(var(--chat) + 16px)" : 16,
+      right: sideChat ? "calc(var(--chat) + 16px)" : 16,
       bottom: 16,
       width: 400,
       height: 300,
