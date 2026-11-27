@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Glint",
+  "version": "0.1.4",
+  "identifier": "app.glint.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Glint",
+        "width": 1360,
+        "height": 860,
+        "minWidth": 1100,
+        "minHeight": 700,
+        "decorations": false,
+        "transparent": false,
+        "shadow": false,
+        "useHttpsScheme": true,
+        "resizable": true,
+        "center": true,
+        "visible": false,
+        "backgroundColor": "#100e0c"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' https://player.twitch.tv https://embed.twitch.tv https://*.twitch.tv; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost https://*.twitch.tv; frame-src https://player.twitch.tv https://embed.twitch.tv https://www.twitch.tv https://clips.twitch.tv https://*.twitch.tv; media-src 'self' blob: https:; object-src 'none'; base-uri 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "Zeke",
+    "shortDescription": "Twitch companion for Windows",
+    "longDescription": "Watch several Twitch streams, read chat with emotes, and get go-live alerts. Uses the official Twitch API and embed player.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}
